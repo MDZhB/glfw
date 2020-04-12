@@ -71,6 +71,9 @@ static const GUID _glfw_GUID_Slider =
 static const GUID _glfw_GUID_POV =
     {0xa36d02f2,0xc9f3,0x11cf,{0xbf,0xc7,0x44,0x45,0x53,0x54,0x00,0x00}};
 
+static const GUID _glfw_GUID_Sine =
+    {0x13541c23,0x8e33,0x11d0,{0x9a,0xd0,0x00,0xa0,0xc9,0xa0,0x6e,0x35}};
+
 #define IID_IDirectInput8W _glfw_IID_IDirectInput8W
 #define GUID_XAxis _glfw_GUID_XAxis
 #define GUID_YAxis _glfw_GUID_YAxis
@@ -80,6 +83,8 @@ static const GUID _glfw_GUID_POV =
 #define GUID_RzAxis _glfw_GUID_RzAxis
 #define GUID_Slider _glfw_GUID_Slider
 #define GUID_POV _glfw_GUID_POV
+
+#define GUID_Sine _glfw_GUID_Sine
 
 // Object data array for our clone of c_dfDIJoystick
 // Generated with https://github.com/elmindreda/c_dfDIJoystick2
@@ -252,6 +257,64 @@ static GLFWbool supportsXInput(const GUID* guid)
     return result;
 }
 
+static void initDefaultRumbleEffect(DIEFFECT *effect)
+{
+    DWORD axes[2] = { DIJOFS_X, DIJOFS_Y };
+    LONG  direction[2] = { 0, 0 };
+
+    memset(effect, 0, sizeof(DIEFFECT));
+
+    effect->dwSize = sizeof(DIEFFECT);
+
+    effect->dwFlags = DIEFF_CARTESIAN | DIEFF_OBJECTOFFSETS;
+
+    effect->dwDuration = 2000000L;        // xbox controller rumble lasts for about 2s after trigger; 
+                                          // directinput duration is in microseconds
+    effect->dwSamplePeriod = 0;               // default duration
+    effect->dwGain = DI_FFNOMINALMAX;
+
+    effect->dwTriggerButton = DIEB_NOTRIGGER;
+    effect->dwTriggerRepeatInterval = INFINITE;
+    effect->cAxes = 1;
+    effect->rgdwAxes = axes;
+    effect->rglDirection = direction;
+    effect->lpEnvelope = 0;
+    effect->dwStartDelay = 0;
+}
+
+BOOL CALLBACK effectsCallback(LPCDIEFFECTINFO effectInfo, LPVOID mystery) {
+    return DIENUM_CONTINUE;
+}
+
+static LPDIRECTINPUTEFFECT createRumbleEffect(IDirectInputDevice8* device)
+{
+    LPDIRECTINPUTEFFECT newEffect;
+
+    DIEFFECT   rumbleEffect;
+    DIPERIODIC periodicParameters;
+
+    initDefaultRumbleEffect(&rumbleEffect);
+    memset(&periodicParameters, 0, sizeof(periodicParameters));
+
+    rumbleEffect.cbTypeSpecificParams = sizeof(DIPERIODIC);
+    rumbleEffect.lpvTypeSpecificParams = &periodicParameters;
+
+    HRESULT enumResult = IDirectInputDevice8_EnumEffects(device, effectsCallback, NULL, DIEFT_ALL);
+
+    HRESULT result = IDirectInputDevice8_CreateEffect(device, &GUID_Sine, &rumbleEffect, &newEffect, NULL);
+
+    if (FAILED(result)) {
+        return NULL;
+    }
+
+    if (FAILED(IDirectInputEffect_Start(newEffect, INFINITE, 0))) {
+        IDirectInputEffect_Release(newEffect);
+        return NULL;
+    }
+
+    return newEffect;
+}
+
 // Frees all resources associated with the specified joystick
 //
 static void closeJoystick(_GLFWjoystick* js)
@@ -260,6 +323,9 @@ static void closeJoystick(_GLFWjoystick* js)
     {
         IDirectInputDevice8_Unacquire(js->win32.device);
         IDirectInputDevice8_Release(js->win32.device);
+
+        if (js->win32.rumble)
+            IDirectInputEffect_Release(js->win32.rumble);
     }
 
     free(js->win32.objects);
@@ -364,8 +430,8 @@ static BOOL CALLBACK deviceCallback(const DIDEVICEINSTANCE* di, void* user)
         }
     }
 
-    if (supportsXInput(&di->guidProduct))
-        return DIENUM_CONTINUE;
+    //if (supportsXInput(&di->guidProduct))
+    //    return DIENUM_CONTINUE;
 
     if (FAILED(IDirectInput8_CreateDevice(_glfw.win32.dinput8.api,
                                           &di->guidInstance,
@@ -481,6 +547,7 @@ static BOOL CALLBACK deviceCallback(const DIDEVICEINSTANCE* di, void* user)
     js->win32.guid = di->guidInstance;
     js->win32.objects = data.objects;
     js->win32.objectCount = data.objectCount;
+    js->win32.rumble = createRumbleEffect(device);
 
     _glfwInputJoystick(js, GLFW_CONNECTED);
     return DIENUM_CONTINUE;
@@ -597,7 +664,6 @@ void _glfwDetectJoystickDisconnectionWin32(void)
             _glfwPlatformPollJoystick(js, _GLFW_POLL_PRESENCE);
     }
 }
-
 
 //////////////////////////////////////////////////////////////////////////
 //////                       GLFW platform API                      //////
@@ -755,14 +821,33 @@ void _glfwPlatformUpdateGamepadGUID(char* guid)
 
 int _glfwPlatformSetGamepadRumble(_GLFWjoystick* js, float slowMotorSpeed, float fastMotorSpeed)
 {
-    if (js->win32.device)
-        return GLFW_FALSE;
-    
-    XINPUT_VIBRATION effect;
-    ZeroMemory(&effect, sizeof(XINPUT_VIBRATION));
+    if (js->win32.device) {
+        if (js->win32.rumble) {
+            DIEFFECT   rumbleEffect;
+            DIPERIODIC periodicParameters;
 
-    effect.wLeftMotorSpeed  = (WORD)(65535.0f * slowMotorSpeed);
-    effect.wRightMotorSpeed = (WORD)(65535.0f * fastMotorSpeed);
+            initDefaultRumbleEffect(&rumbleEffect);
+            memset(&periodicParameters, 0, sizeof(periodicParameters));
 
-    return (int) (XInputSetState(js->win32.index, &effect) == ERROR_SUCCESS);
+            periodicParameters.dwMagnitude = (DWORD)(fastMotorSpeed * 10000);
+            periodicParameters.dwPeriod = 1000;
+
+            if (FAILED(IDirectInputEffect_SetParameters(js->win32.rumble, &rumbleEffect, DIEP_START | DIEP_TYPESPECIFICPARAMS))) {
+                return GLFW_FALSE;
+            }
+        }
+
+        return js->win32.rumble ? GLFW_TRUE : GLFW_FALSE;
+    }
+    else 
+    {
+
+        XINPUT_VIBRATION effect;
+        ZeroMemory(&effect, sizeof(XINPUT_VIBRATION));
+
+        effect.wLeftMotorSpeed = (WORD)(65535.0f * slowMotorSpeed);
+        effect.wRightMotorSpeed = (WORD)(65535.0f * fastMotorSpeed);
+
+        return XInputSetState(js->win32.index, &effect) == ERROR_SUCCESS ? GLFW_TRUE : GLFW_FALSE;
+    }
 }

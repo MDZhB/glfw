@@ -44,6 +44,7 @@ typedef struct _GLFWjoystickWin32
     _GLFWjoyobjectWin32*    objects;
     int                     objectCount;
     IDirectInputDevice8W*   device;
+    LPDIRECTINPUTEFFECT     rumble;
     DWORD                   index;
     GUID                    guid;
 } _GLFWjoystickWin32;
