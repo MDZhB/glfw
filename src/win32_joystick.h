@@ -54,4 +54,4 @@ void _glfwInitJoysticksWin32(void);
 void _glfwTerminateJoysticksWin32(void);
 void _glfwDetectJoystickConnectionWin32(void);
 void _glfwDetectJoystickDisconnectionWin32(void);
-
+void _glfwPlatformWin32AcquireJoysticks(_GLFWwindow* window);

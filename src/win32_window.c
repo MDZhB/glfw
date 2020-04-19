@@ -477,7 +477,6 @@ static void acquireMonitor(_GLFWwindow* window)
 
     if (!window->monitor->window)
         _glfw.win32.acquiredMonitorCount++;
-
     _glfwSetVideoModeWin32(window->monitor, &window->videoMode);
     _glfwInputMonitorWindow(window->monitor, window);
 }
@@ -1402,6 +1401,8 @@ int _glfwPlatformCreateWindow(_GLFWwindow* window,
         acquireMonitor(window);
         fitToMonitor(window);
     }
+
+    _glfwPlatformWin32AcquireJoysticks(window);
 
     return GLFW_TRUE;
 }

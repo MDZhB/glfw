@@ -283,6 +283,7 @@ static void initDefaultRumbleEffect(DIEFFECT *effect)
 }
 
 BOOL CALLBACK effectsCallback(LPCDIEFFECTINFO effectInfo, LPVOID mystery) {
+    printf("feem\n");
     return DIENUM_CONTINUE;
 }
 
@@ -430,8 +431,8 @@ static BOOL CALLBACK deviceCallback(const DIDEVICEINSTANCE* di, void* user)
         }
     }
 
-    //if (supportsXInput(&di->guidProduct))
-    //    return DIENUM_CONTINUE;
+    if (supportsXInput(&di->guidProduct))
+        return DIENUM_CONTINUE;
 
     if (FAILED(IDirectInput8_CreateDevice(_glfw.win32.dinput8.api,
                                           &di->guidInstance,
@@ -662,6 +663,24 @@ void _glfwDetectJoystickDisconnectionWin32(void)
         _GLFWjoystick* js = _glfw.joysticks + jid;
         if (js->present)
             _glfwPlatformPollJoystick(js, _GLFW_POLL_PRESENCE);
+    }
+}
+
+void _glfwPlatformWin32AcquireJoysticks(_GLFWwindow* window)
+{
+    int jid;
+    HRESULT hr;
+
+    for (jid = 0; jid <= GLFW_JOYSTICK_LAST; jid++)
+    {
+        _GLFWjoystick* js = _glfw.joysticks + jid;
+        if (js->present && js->win32.device) {
+            hr = IDirectInputDevice_SetCooperativeLevel(js->win32.device, window->win32.handle, DISCL_EXCLUSIVE | DISCL_FOREGROUND);
+            if (FAILED(hr)) {
+                printf("feem");
+            }
+            js->win32.rumble = createRumbleEffect(js->win32.device);
+        }
     }
 }
 
